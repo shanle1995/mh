@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useConsume } from "./utils/hook";
 
 defineOptions({
@@ -14,59 +15,167 @@ const {
   grandTotal,
   formatMoney,
   percentOf,
-  getSummaries
+  getSummaries,
+  updateAccountName
 } = useConsume();
+
+/** 正在编辑的账号 id（卡片上），null 表示未编辑 */
+const editingCardId = ref<string | null>(null);
+/** 卡片编辑输入框内容 */
+const editingCardValue = ref("");
+
+/** 正在编辑的账号 id（表头列上），null 表示未编辑 */
+const editingHeaderId = ref<string | null>(null);
+/** 表头编辑输入框内容 */
+const editingHeaderValue = ref("");
+
+/** 卡片名称输入框引用 */
+const cardInputRef = ref<any>(null);
+/** 表头名称输入框引用 */
+const headerInputRef = ref<any>(null);
+
+/**
+ * 双击卡片上的名称，进入编辑状态
+ * @param accountId 账号 id
+ * @param currentName 当前名称
+ */
+function startEditCardName(accountId: string, currentName: string): void {
+  editingCardId.value = accountId;
+  editingCardValue.value = currentName;
+  // 等 DOM 更新后聚焦输入框
+  setTimeout(() => {
+    cardInputRef.value?.focus?.();
+    cardInputRef.value?.select?.();
+  }, 0);
+}
+
+/**
+ * 卡片编辑失焦或回车时提交修改
+ */
+function commitCardEdit(): void {
+  if (editingCardId.value) {
+    updateAccountName(editingCardId.value, editingCardValue.value);
+    editingCardId.value = null;
+    editingCardValue.value = "";
+  }
+}
+
+/**
+ * 卡片编辑按 Esc 取消
+ */
+function cancelCardEdit(): void {
+  editingCardId.value = null;
+  editingCardValue.value = "";
+}
+
+/**
+ * 双击表头列的名称，进入编辑状态
+ * @param accountId 账号 id
+ * @param currentName 当前名称
+ */
+function startEditHeaderName(accountId: string, currentName: string): void {
+  editingHeaderId.value = accountId;
+  editingHeaderValue.value = currentName;
+  setTimeout(() => {
+    headerInputRef.value?.focus?.();
+    headerInputRef.value?.select?.();
+  }, 0);
+}
+
+/**
+ * 表头编辑失焦或回车时提交修改
+ */
+function commitHeaderEdit(): void {
+  if (editingHeaderId.value) {
+    updateAccountName(editingHeaderId.value, editingHeaderValue.value);
+    editingHeaderId.value = null;
+    editingHeaderValue.value = "";
+  }
+}
+
+/**
+ * 表头编辑按 Esc 取消
+ */
+function cancelHeaderEdit(): void {
+  editingHeaderId.value = null;
+  editingHeaderValue.value = "";
+}
 </script>
 
 <template>
   <div class="consume-page">
     <!-- 账号概览卡片 -->
     <div class="overview-grid">
-        <div
-          v-for="a in accounts"
-          :key="a.id"
-          class="overview-card"
-          :style="{
-            '--from': a.from,
-            '--to': a.to
-          }"
-        >
-          <div class="card-glow" />
-          <div class="card-top">
-            <IconifyIconOffline :icon="a.icon" class="card-icon" />
-            <div class="card-meta">
-              <div class="card-role">{{ a.role }}</div>
-              <div class="card-name">{{ a.name }}</div>
-            </div>
-          </div>
-          <div class="card-amount">{{ formatMoney(accountTotal(a.id)) }}</div>
-          <div class="card-percent">
-            <div class="percent-bar">
-              <div class="percent-fill" :style="{ width: percentOf(a.id) }" />
-            </div>
-            <span class="percent-text">占比 {{ percentOf(a.id) }}</span>
+      <div
+        v-for="a in accounts"
+        :key="a.id"
+        class="overview-card"
+        :style="{
+          '--from': a.from,
+          '--to': a.to
+        }"
+      >
+        <div class="card-glow" />
+        <div class="card-top">
+          <IconifyIconOffline :icon="a.icon" class="card-icon" />
+          <div class="card-meta">
+            <!-- 角色/名称：双击任意一处都可编辑，进入编辑态只显示一个输入框 -->
+            <el-input
+              v-if="editingCardId === a.id"
+              ref="cardInputRef"
+              v-model="editingCardValue"
+              size="small"
+              class="edit-name-input"
+              @blur="commitCardEdit"
+              @keyup.enter="commitCardEdit"
+              @keyup.esc="cancelCardEdit"
+            />
+            <template v-else>
+              <div
+                class="card-role"
+                title="双击编辑名称"
+                @dblclick="startEditCardName(a.id, a.name)"
+              >
+                {{ a.role }}
+              </div>
+              <div
+                class="card-name"
+                title="双击编辑名称"
+                @dblclick="startEditCardName(a.id, a.name)"
+              >
+                {{ a.name }}
+              </div>
+            </template>
           </div>
         </div>
-
-        <!-- 全部账号合计卡片 -->
-        <div class="overview-card overview-total">
-          <div class="card-glow" />
-          <div class="card-top">
-            <IconifyIconOffline icon="ri/summit-line" class="card-icon" />
-            <div class="card-meta">
-              <div class="card-role">合计</div>
-              <div class="card-name">全部账号</div>
-            </div>
+        <div class="card-amount">{{ formatMoney(accountTotal(a.id)) }}</div>
+        <div class="card-percent">
+          <div class="percent-bar">
+            <div class="percent-fill" :style="{ width: percentOf(a.id) }" />
           </div>
-          <div class="card-amount">{{ formatMoney(grandTotal) }}</div>
-          <div class="card-percent">
-            <div class="percent-bar">
-              <div class="percent-fill percent-fill-full" />
-            </div>
-            <span class="percent-text">共 {{ accounts.length }} 个账号</span>
-          </div>
+          <span class="percent-text">占比 {{ percentOf(a.id) }}</span>
         </div>
       </div>
+
+      <!-- 全部账号合计卡片 -->
+      <div class="overview-card overview-total">
+        <div class="card-glow" />
+        <div class="card-top">
+          <IconifyIconOffline icon="ri/summit-line" class="card-icon" />
+          <div class="card-meta">
+            <div class="card-role">合计</div>
+            <div class="card-name">全部账号</div>
+          </div>
+        </div>
+        <div class="card-amount">{{ formatMoney(grandTotal) }}</div>
+        <div class="card-percent">
+          <div class="percent-bar">
+            <div class="percent-fill percent-fill-full" />
+          </div>
+          <span class="percent-text">共 {{ accounts.length }} 个账号</span>
+        </div>
+      </div>
+    </div>
 
     <!-- 花费明细表 -->
     <el-card shadow="never" class="table-card">
@@ -83,7 +192,7 @@ const {
             <div class="cell-category">{{ row.category }}</div>
           </template>
         </el-table-column>
-        <!-- 账号列（动态生成，可编辑金额） -->
+        <!-- 账号列（动态生成，可编辑金额，表头双击可改名称） -->
         <el-table-column
           v-for="a in accounts"
           :key="a.id"
@@ -93,9 +202,25 @@ const {
           align="center"
         >
           <template #header>
-            <div class="header-account" :style="{ '--c': a.from }">
+            <div
+              class="header-account"
+              :style="{ '--c': a.from }"
+              title="双击编辑名称"
+              @dblclick="startEditHeaderName(a.id, a.name)"
+            >
               <IconifyIconOffline :icon="a.icon" class="header-icon-small" />
-              <span>{{ a.name }}</span>
+              <el-input
+                v-if="editingHeaderId === a.id"
+                ref="headerInputRef"
+                v-model="editingHeaderValue"
+                size="small"
+                class="edit-header-input"
+                @blur="commitHeaderEdit"
+                @keyup.enter="commitHeaderEdit"
+                @keyup.esc="cancelHeaderEdit"
+                @click.stop
+              />
+              <span v-else>{{ a.name }}</span>
             </div>
           </template>
           <template #default="{ row }">
@@ -268,12 +393,16 @@ const {
       .card-role {
         font-size: 10px;
         color: rgb(255 255 255 / 85%);
+        cursor: pointer;
+        user-select: none;
       }
 
       .card-name {
         font-size: 12px;
         font-weight: 700;
         letter-spacing: 0.5px;
+        cursor: pointer;
+        user-select: none;
       }
     }
   }
@@ -316,6 +445,28 @@ const {
       font-size: 9px;
       color: rgb(255 255 255 / 80%);
     }
+  }
+}
+
+/* 卡片名称编辑输入框 */
+.edit-name-input {
+  width: 100%;
+
+  :deep(.el-input__wrapper) {
+    padding: 0 4px;
+    background: rgb(255 255 255 / 90%);
+    border-radius: 4px;
+    box-shadow: none;
+
+    &.is-focus {
+      box-shadow: 0 0 0 2px #fff;
+    }
+  }
+
+  :deep(.el-input__inner) {
+    height: 20px;
+    font-size: 11px;
+    color: #303133;
   }
 }
 
@@ -443,10 +594,36 @@ const {
   align-items: center;
   gap: 3px;
   color: var(--c, #606266);
+  cursor: pointer;
+  user-select: none;
 
   .header-icon-small {
     font-size: 12px;
     color: var(--c, #909399);
+  }
+}
+
+/* 表头名称编辑输入框 */
+.edit-header-input {
+  width: 100px;
+
+  :deep(.el-input__wrapper) {
+    padding: 0 6px;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px var(--c, #6366f1);
+
+    &.is-focus {
+      box-shadow: 0 0 0 2px var(--c, #6366f1);
+    }
+  }
+
+  :deep(.el-input__inner) {
+    height: 26px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--c, #606266);
+    text-align: center;
   }
 }
 

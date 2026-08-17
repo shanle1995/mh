@@ -33,13 +33,20 @@ interface CostRow {
   a5: number;
 }
 
+/** 账号本地存储中持久化的字段结构 */
+interface AccountStorageItem {
+  id: string;
+  name: string;
+  role: string;
+}
+
 /**
  * 梦幻消耗统计页面逻辑
  * 集中管理账号、花费项目声明及所有统计计算函数
  */
 export function useConsume() {
-  // 账号列表（5个账号：无底洞、女儿村、3个普陀），每个账号带角色图标与渐变配色
-  const accounts: Account[] = [
+  // 账号默认值（用于初始化及兜底）
+  const defaultAccounts: Account[] = [
     {
       id: "a1",
       name: "无底洞",
@@ -82,6 +89,99 @@ export function useConsume() {
     }
   ];
 
+  // 账号本地存储 key（保存 name / role）
+  const ACCOUNT_STORAGE_KEY = "menghuan_consume_accounts";
+
+  /**
+   * 从 localStorage 读取已保存的账号名称与角色
+   * 兼容两种格式：
+   *   1. [...]（直接数组）
+   *   2. { accounts: [...] }（对象包裹）
+   * @returns 保存的账号精简数据，读取失败返回 null
+   */
+  function loadAccountsFromStorage(): AccountStorageItem[] | null {
+    try {
+      const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      // 格式1：直接数组
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+      // 格式2：对象中包含 accounts 字段
+      if (parsed && Array.isArray(parsed.accounts)) {
+        return parsed.accounts;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 将账号名称与角色保存到 localStorage
+   * @param accList 当前账号列表
+   */
+  function saveAccountsToStorage(accList: Account[]): void {
+    try {
+      const payload: AccountStorageItem[] = accList.map(a => ({
+        id: a.id,
+        name: a.name,
+        role: a.role
+      }));
+      localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // localStorage 写入失败时静默忽略
+    }
+  }
+
+  /**
+   * 使用本地存储中的 name / role 覆盖默认账号
+   * @returns 合并后的账号列表
+   */
+  function buildAccounts(): Account[] {
+    const saved = loadAccountsFromStorage();
+    if (!saved) return defaultAccounts.map(a => ({ ...a }));
+    return defaultAccounts.map(def => {
+      const found = saved.find(s => s.id === def.id);
+      return {
+        ...def,
+        name: found?.name ?? def.name,
+        role: found?.role ?? def.role
+      };
+    });
+  }
+
+  // 账号列表（响应式，支持修改后持久化）
+  const accounts = ref<Account[]>(buildAccounts());
+
+  // 监听账号变化，自动持久化名称与角色
+  watch(
+    accounts,
+    accList => {
+      saveAccountsToStorage(accList);
+    },
+    { deep: true }
+  );
+
+  /**
+   * 更新某个账号的显示名称（卡片、表头、本地存储同步更新）
+   * @param accountId 账号 id，如 a1/a2/a3/a4/a5
+   * @param newName 新的显示名称
+   */
+  function updateAccountName(accountId: string, newName: string): void {
+    const acc = accounts.value.find(a => a.id === accountId);
+    if (!acc) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      ElMessage.warning("账号名称不能为空");
+      return;
+    }
+    acc.name = trimmed;
+    acc.role = trimmed;
+    ElMessage.success("名称已更新");
+  }
+
   // 花费项目列表（共18项）
   const costCategories: string[] = [
     "角色购买",
@@ -121,6 +221,10 @@ export function useConsume() {
 
   /**
    * 从 localStorage 读取已保存的数据
+   * 兼容三种格式：
+   *   1. { tableData: [...] }
+   *   2. [...]（直接数组）
+   *   3. { tableData: [...], ...其他字段 }
    * @returns 保存的表格数据，读取失败返回 null
    */
   function loadFromStorage(): CostRow[] | null {
@@ -128,8 +232,15 @@ export function useConsume() {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || !parsed.tableData) return null;
-      return parsed.tableData;
+      // 格式1/3：对象中包含 tableData 字段
+      if (parsed && Array.isArray(parsed.tableData)) {
+        return parsed.tableData;
+      }
+      // 格式2：直接就是数组
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -147,9 +258,32 @@ export function useConsume() {
     }
   }
 
+  /**
+   * 将本地存储中的旧数据与当前默认结构合并
+   * 按 category 名称匹配，缺失的账号字段补 0
+   * 避免旧数据缺少字段或字段名不一致导致显示为空
+   * @param saved 已保存的表格数据
+   * @returns 与当前 costCategories 对齐的完整数据
+   */
+  function mergeSavedData(saved: CostRow[]): CostRow[] {
+    return createDefaultTableData().map(row => {
+      // 按 category 名称匹配旧数据
+      const found = saved.find(r => r.category === row.category);
+      if (!found) return row;
+      // 按当前账号 id 逐个取值，缺失或非数字补 0
+      accounts.value.forEach(a => {
+        const v = (found as any)[a.id];
+        (row as any)[a.id] = Number(v) || 0;
+      });
+      return row;
+    });
+  }
+
   // 初始化：优先从 localStorage 读取，否则使用默认值
   const saved = loadFromStorage();
-  const tableData = ref<CostRow[]>(saved ?? createDefaultTableData());
+  const tableData = ref<CostRow[]>(
+    saved && saved.length > 0 ? mergeSavedData(saved) : createDefaultTableData()
+  );
 
   // 监听数据变化，自动持久化到 localStorage
   watch(
@@ -166,7 +300,7 @@ export function useConsume() {
    * @returns 该项目所有账号花费总和
    */
   function rowTotal(row: CostRow): number {
-    return accounts.reduce(
+    return accounts.value.reduce(
       (sum, a) => sum + (Number(row[a.id as keyof CostRow]) || 0),
       0
     );
@@ -224,7 +358,7 @@ export function useConsume() {
       if (idx === 0) return "总计";
       const accId = col.property;
       // 账号列：显示该账号总花费（千分位）
-      if (accId && accounts.find(a => a.id === accId)) {
+      if (accId && accounts.value.find(a => a.id === accId)) {
         return formatMoney(accountTotal(accId));
       }
       // 合计列：显示总合计（千分位）
@@ -285,7 +419,7 @@ export function useConsume() {
               (r: any) => r.category === row.category
             );
             if (found) {
-              accounts.forEach(a => {
+              accounts.value.forEach(a => {
                 (row as any)[a.id] = Number(found[a.id]) || 0;
               });
             }
@@ -311,6 +445,7 @@ export function useConsume() {
     percentOf,
     getSummaries,
     exportData,
-    triggerImport
+    triggerImport,
+    updateAccountName
   };
 }
