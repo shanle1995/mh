@@ -46,6 +46,9 @@ export default ({ mode }: ConfigEnv): UserConfigExport => {
       sourcemap: false,
       // 消除打包大小超过500kb警告
       chunkSizeWarningLimit: 4000,
+      // GitHub Pages 项目站点部署输出到 docs 目录
+      outDir: "docs",
+      emptyOutDir: false,
       rollupOptions: {
         input: {
           index: pathResolve("./index.html", import.meta.url)
